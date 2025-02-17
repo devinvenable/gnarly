@@ -6,6 +6,14 @@ This script processes an input image or video file with a combination of cellula
 automata and Deep Dream effects. The output is displayed in a Pygame window and
 recorded to an output video file.
 
+Keyboard Commands (display-only, not saved to video):
+  SPACE     - Cycle cellular automata rule
+  R         - Reset grid and image
+  ESC       - Quit
+  LEFT/RIGHT- Decrease/Increase grid scale (current value shown)
+  UP/DOWN   - Decrease/Increase divisor (current value shown)
+  B/N       - Decrease/Increase blend alpha (current value shown)
+
 Usage:
     python script.py input_file [--skip-face-detection] [--clear-cache]
 """
@@ -27,10 +35,6 @@ import dlib  # For facial landmark detection (currently not used)
 # ==== Configuration Constants ====
 FPS = 15  # Frames per second for display and video output
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-GRID_SCALE = 4  # Number of image pixels per grid cell
-
-DIVISOR_CHANGE_INTERVAL = 20  # Change divisor every 20 iterations (not implemented yet)
-divisor = 2  # Initial divisor value for DivisorRule
 
 
 # ==== Utility Functions ====
@@ -277,8 +281,6 @@ def main(content_input_path: str, skip_face_detection: bool = False,
         skip_face_detection: Flag to skip face detection (not implemented).
         clear_cache: Flag to clear cache before processing (not implemented).
     """
-    global divisor  # Using the global divisor value
-
     cap = None  # Video capture handle (if needed)
     content_image_array = None
 
@@ -317,15 +319,16 @@ def main(content_input_path: str, skip_face_detection: bool = False,
             height, width = original_width, original_height
             print(f"Image size is {width}x{height}; no resizing needed.")
 
-        # Pad image so dimensions are divisible by GRID_SCALE
-        pad_height = (GRID_SCALE - height % GRID_SCALE) if height % GRID_SCALE != 0 else 0
-        pad_width = (GRID_SCALE - width % GRID_SCALE) if width % GRID_SCALE != 0 else 0
+        # Pad image so dimensions are divisible by the grid scale.
+        # (Note: if grid scale changes later, we use the current dimensions.)
+        pad_height = (8 - height % 8) if height % 8 != 0 else 0
+        pad_width = (8 - width % 8) if width % 8 != 0 else 0
         if pad_height or pad_width:
             content_image_array = cv2.copyMakeBorder(
                 content_image_array, 0, pad_height, 0, pad_width, cv2.BORDER_REPLICATE
             )
             height, width = content_image_array.shape[:2]
-            print(f"Padded image to {width}x{height} for GRID_SCALE={GRID_SCALE}")
+            print(f"Padded image to {width}x{height}")
         else:
             print("No padding needed for image dimensions.")
 
@@ -339,23 +342,27 @@ def main(content_input_path: str, skip_face_detection: bool = False,
         deep_dream_iterations = 20
         deep_dream_lr = 0.16
 
-        # Initialize Pygame
+        # Initialize Pygame and font (using a smaller font for the overlay)
         pygame.init()
+        pygame.font.init()
+        overlay_font = pygame.font.SysFont("Arial", 14)
         screen = pygame.display.set_mode((width, height))
         clock = pygame.time.Clock()
         print(f"Pygame window initialized with size {width}x{height}")
 
-        # Initialize VideoWriter for output video
+        # Initialize VideoWriter for output video (without overlay)
         video_filename = 'output_video.mp4'
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         fps = input_fps if cap is not None else FPS
         video_writer = cv2.VideoWriter(video_filename, fourcc, fps, (width, height))
         print(f"Video writer initialized: '{video_filename}'")
 
-        # Initialize cellular automata grid
-        grid_height = height // GRID_SCALE
-        grid_width = width // GRID_SCALE
-        grid_shape = (grid_height, grid_width)
+        # Initialize adjustable parameters
+        grid_scale = 8  # Controls the resolution of the cellular automata grid.
+        divisor = 2     # For DivisorRule in grid update.
+        blend_alpha = 0.5  # For blending current image with previous output.
+
+        grid_shape = (height // grid_scale, width // grid_scale)
         grid = init_game_of_life_grid(grid_shape)
 
         # Set initial cellular automata rule
@@ -397,6 +404,28 @@ def main(content_input_path: str, skip_face_detection: bool = False,
                             cumulative_dream_image = content_image_array.copy()
                         previous_output = None
                         print("Reset grid and image.")
+                    elif event.key == pygame.K_LEFT:
+                        grid_scale = max(4, grid_scale - 4)
+                        grid_shape = (height // grid_scale, width // grid_scale)
+                        grid = init_game_of_life_grid(grid_shape)
+                        print(f"Decreased grid scale to {grid_scale}")
+                    elif event.key == pygame.K_RIGHT:
+                        grid_scale += 4
+                        grid_shape = (height // grid_scale, width // grid_scale)
+                        grid = init_game_of_life_grid(grid_shape)
+                        print(f"Increased grid scale to {grid_scale}")
+                    elif event.key == pygame.K_UP:
+                        divisor += 1
+                        print(f"Increased divisor to {divisor}")
+                    elif event.key == pygame.K_DOWN:
+                        divisor = max(1, divisor - 1)
+                        print(f"Decreased divisor to {divisor}")
+                    elif event.key == pygame.K_b:
+                        blend_alpha = min(1.0, blend_alpha + 0.1)
+                        print(f"Increased blend alpha to {blend_alpha:.1f}")
+                    elif event.key == pygame.K_n:
+                        blend_alpha = max(0.0, blend_alpha - 0.1)
+                        print(f"Decreased blend alpha to {blend_alpha:.1f}")
 
             # Read new frame if input is a video
             if cap is not None:
@@ -409,11 +438,10 @@ def main(content_input_path: str, skip_face_detection: bool = False,
                 content_image_array = cv2.resize(content_image_array, (width, height))
                 cumulative_dream_image = content_image_array.copy()
 
-            # Optionally blend with previous output to create an echo effect
+            # Blend with previous output for an echo effect using blend_alpha
             if previous_output is not None:
-                alpha = 0.5  # Blending factor
-                content_image_array = cv2.addWeighted(content_image_array, alpha,
-                                                      previous_output, 1 - alpha, 0)
+                content_image_array = cv2.addWeighted(content_image_array, blend_alpha,
+                                                      previous_output, 1 - blend_alpha, 0)
 
             # Update cellular automata grid
             grid = update_grid(grid, current_rule, divisor)
@@ -430,13 +458,13 @@ def main(content_input_path: str, skip_face_detection: bool = False,
             alive_mask = upscaled_grid  # Alive cells mask
             dead_mask = 1 - upscaled_grid  # Dead cells mask
 
-            # Create composite image using grid masks to blend current content and cumulative dream image
+            # Create composite image by blending content and cumulative dream image
             composite_image = (
                 content_image_array.astype(np.float32) * alive_mask[:, :, np.newaxis] +
                 cumulative_dream_image.astype(np.float32) * dead_mask[:, :, np.newaxis]
             ).astype(np.uint8)
 
-            # Apply Deep Dream processing to the composite image
+            # Apply Deep Dream processing
             deep_dreamed_image = deep_dream_processing(
                 composite_image,
                 model=deep_dream_model,
@@ -447,22 +475,46 @@ def main(content_input_path: str, skip_face_detection: bool = False,
             cumulative_dream_image = deep_dreamed_image.copy()
             previous_output = content_image_array.copy()
 
-            # Display the output using Pygame
-            try:
-                surface = pygame.surfarray.make_surface(np.swapaxes(cumulative_dream_image, 0, 1))
-            except Exception as e:
-                print(f"Error creating Pygame surface: {e}")
-                sys.exit(1)
-            screen.blit(surface, (0, 0))
-            pygame.display.flip()
-
-            # Write the frame to the output video (convert from RGB to BGR)
+            # --- Write frame to video BEFORE drawing overlay ---
             try:
                 output_frame = cv2.cvtColor(cumulative_dream_image, cv2.COLOR_RGB2BGR)
                 video_writer.write(output_frame)
             except Exception as e:
                 print(f"Error writing frame to video: {e}")
                 sys.exit(1)
+
+            # --- Create a display surface and draw overlay text ---
+            try:
+                display_surface = pygame.surfarray.make_surface(
+                    np.swapaxes(cumulative_dream_image, 0, 1)
+                )
+            except Exception as e:
+                print(f"Error creating Pygame surface: {e}")
+                sys.exit(1)
+
+            # Prepare overlay text lines (using a smaller font)
+            overlay_texts = [
+                "Keyboard Commands:",
+                "SPACE: Cycle rule    R: Reset    ESC: Quit",
+                f"LEFT/RIGHT: Grid Scale ({grid_scale})",
+                f"UP/DOWN: Divisor ({divisor})",
+                f"B/N: Blend Alpha ({blend_alpha:.1f})"
+            ]
+            y_offset = 5
+            for line in overlay_texts:
+                text_surface = overlay_font.render(line, True, (255, 255, 255))
+                text_rect = text_surface.get_rect(topleft=(5, y_offset))
+                # Draw a semi-transparent background rectangle for readability
+                bg_surf = pygame.Surface((text_rect.width, text_rect.height))
+                bg_surf.set_alpha(150)
+                bg_surf.fill((0, 0, 0))
+                display_surface.blit(bg_surf, text_rect)
+                display_surface.blit(text_surface, text_rect)
+                y_offset += text_rect.height + 2
+
+            # Blit the display surface (with overlay) to the screen
+            screen.blit(display_surface, (0, 0))
+            pygame.display.flip()
 
             clock.tick(FPS)
 

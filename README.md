@@ -30,6 +30,7 @@ A Python-based creative visualization tool that combines cellular automata, Deep
 ## Usage
 
 Basic usage:
+
 ```bash
 python main.py input_file [--output_file OUTPUT_FILE] [--deep_dream_iterations ITERATIONS] [--deep_dream_lr LEARNING_RATE] [--creativity CREATIVITY_LEVEL]
 ```
@@ -71,7 +72,7 @@ This project was developed by Devin Venable in collaboration with AI assistance.
 
 ## Video Examples
 
-View all video examples on our [video showcase page](https://cellular-automata-videos.s3.amazonaws.com/index.html).
+View all video examples on our [video showcase page](https://cellular-automata-videos.s3.amazonaws.com/videos.html).
 
 Here are some preview thumbnails of the outputs:
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_24_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_24_dream.mp4)
@@ -85,16 +86,19 @@ Here are some preview thumbnails of the outputs:
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_9_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_9_dream.mp4)
 
 ### Nature and Landscapes
+
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/flower_5_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/flower_5_dream.mp4)
 
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/leaves_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/leaves.mp4)
 
 ### Abstract and Stylized
+
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/style_15_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/style_15_dream.mp4)
 
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/style_24_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/style_24_dream.mp4)
 
 ### Other Examples
+
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/one_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/one.mp4)
 
 [![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/UK_NewYork_US_Header_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/UK_NewYork_US_Header_dream.mp4)

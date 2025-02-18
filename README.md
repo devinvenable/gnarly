@@ -74,30 +74,30 @@ This project was developed by Devin Venable in collaboration with AI assistance.
 Here are all example outputs from the cellular automata processing:
 
 ### Human Portraits Series
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_24_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_24_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_24_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_24_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_26_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_26_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_26_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_26_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_28_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_28_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_28_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_28_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_29_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_29_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_29_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_29_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/human_9_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/human_9_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_9_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/human_9_dream.mp4)
 
 ### Nature and Landscapes
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/flower_5_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/flower_5_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/flower_5_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/flower_5_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/leaves_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/leaves.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/leaves_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/leaves.mp4)
 
 ### Abstract and Stylized
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/style_15_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/style_15_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/style_15_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/style_15_dream.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/style_24_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/style_24_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/style_24_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/style_24_dream.mp4)
 
 ### Other Examples
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/one_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/one.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/one_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/one.mp4)
 
-[![Watch the video](https://cellular-automata-videos.s3.amazonaws.com/UK_NewYork_US_Header_dream_thumb.jpg)](https://cellular-automata-videos.s3.amazonaws.com/UK_NewYork_US_Header_dream.mp4)
+[![Watch the video](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/UK_NewYork_US_Header_dream_thumb.jpg)](http://cellular-automata-videos.s3-website-us-east-1.amazonaws.com/UK_NewYork_US_Header_dream.mp4)
 
 ## License
 

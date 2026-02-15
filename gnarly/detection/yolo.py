@@ -3,8 +3,12 @@
 from typing import List
 
 import numpy as np
-import torch
 from PIL import Image
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from ..config import DetectionConfig
 from .base import Detection
@@ -38,6 +42,8 @@ class YOLODetector:
             max_size_ratio: Max object area as fraction of frame area.
             device: Device to run inference on ('cuda' or 'cpu').
         """
+        if torch is None:
+            raise ImportError("YOLO detection requires torch. Install with: pip install torch")
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
         self.max_objects = max_objects

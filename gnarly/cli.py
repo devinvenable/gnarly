@@ -168,6 +168,13 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Maximum zoom level before reversing (default: 2.0)",
     )
 
+    # Face detection argument
+    parser.add_argument(
+        "--faces",
+        action="store_true",
+        help="Enable face detection with dlib (downloads model on first use)",
+    )
+
     parsed = parser.parse_args(args)
 
     # Validate input exists
@@ -196,4 +203,5 @@ def parse_args(args=None) -> ProcessingConfig:
             if parsed.dream_layers
             else None
         ),
+        face_enabled=parsed.faces,
     )

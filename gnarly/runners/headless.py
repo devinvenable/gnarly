@@ -1,17 +1,102 @@
 """Headless batch processing runner."""
 
+import sys
+
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 from ..config import ProcessingConfig
 from ..core.io import VideoReader, VideoWriter, is_video_file
-from ..detection.base import Detector
 from ..effects.ca_effect import CAEffect
 from ..effects.deep_dream_effect import DeepDreamEffect
 from ..effects.morph_effect import MorphEffect
 from ..effects.pipeline import EffectPipeline
 from ..effects.zoom_effect import ZoomEffect
+
+
+def check_gpu_availability() -> bool:
+    """Check if CUDA GPU is available.
+
+    Returns:
+        True if CUDA is available, False otherwise.
+    """
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+
+def validate_gpu_features(config: ProcessingConfig) -> list[str]:
+    """Check which GPU features are requested and validate availability.
+
+    Args:
+        config: Processing configuration.
+
+    Returns:
+        List of error messages for unavailable GPU features.
+    """
+    errors = []
+    gpu_available = check_gpu_availability()
+
+    if config.deep_dream.enabled and not gpu_available:
+        errors.append("Deep Dream requires a CUDA-capable GPU (--deep-dream)")
+
+    # Object detection (YOLO/EfficientDet) requires GPU
+    # Morphing also implicitly requires detection (unless using --faces)
+    needs_gpu_detection = (
+        config.detection.enabled or
+        (config.morph.enabled and not config.face.enabled)
+    )
+    if needs_gpu_detection and not gpu_available:
+        errors.append(
+            f"Object detection with {config.detection.model} requires a CUDA-capable GPU (--detect)"
+        )
+
+    if config.morph.enabled and not gpu_available:
+        errors.append("Morphing effect (Stable Diffusion) requires a CUDA-capable GPU (--morph)")
+
+    return errors
+
+
+def create_detector(config: ProcessingConfig):
+    """Create detector based on config.
+
+    Detector is created if:
+    - face detection is enabled (--faces)
+    - object detection is enabled (--detect)
+    - morphing is enabled (--morph) - requires detection to work
+
+    Args:
+        config: Processing configuration.
+
+    Returns:
+        Detector instance or None if detection not needed.
+    """
+    # Face detection takes priority if explicitly enabled
+    if config.face.enabled:
+        from ..detection.face import FaceDetector
+        print("Initializing face detector...")
+        return FaceDetector()
+
+    # Check if detection is needed (either explicitly or for morphing)
+    needs_detection = config.detection.enabled or config.morph.enabled
+
+    if not needs_detection:
+        return None
+
+    if config.detection.model == "yolo":
+        from ..detection.yolo import YOLODetector
+        return YOLODetector.from_config(config.detection, device="cuda")
+    elif config.detection.model == "efficientdet":
+        from ..detection.efficientdet import EfficientDetDetector
+        return EfficientDetDetector(
+            confidence_threshold=config.detection.confidence_threshold,
+            device="cuda",
+        )
+    else:
+        raise ValueError(f"Unknown detection model: {config.detection.model}")
 
 
 def prepare_frame(frame: np.ndarray, max_dim: int, grid_scale: int) -> np.ndarray:
@@ -47,12 +132,44 @@ def prepare_frame(frame: np.ndarray, max_dim: int, grid_scale: int) -> np.ndarra
     return frame
 
 
-def run_headless(config: ProcessingConfig, detector: Detector | None = None) -> None:
+def run_headless(config: ProcessingConfig) -> None:
     """Run headless batch processing.
 
     Args:
         config: Processing configuration.
+
+    Raises:
+        SystemExit: If GPU features are requested but unavailable.
     """
+    # Validate GPU features before proceeding
+    gpu_errors = validate_gpu_features(config)
+    if gpu_errors:
+        print("GPU features requested but unavailable:", file=sys.stderr)
+        for error in gpu_errors:
+            print(f"  - {error}", file=sys.stderr)
+        print("\nTo fix this, either:", file=sys.stderr)
+        print("  1. Run on a system with a CUDA-capable GPU", file=sys.stderr)
+        print("  2. Disable GPU features (remove --deep-dream, --detect, --morph)", file=sys.stderr)
+        sys.exit(1)
+
+    # Create detector if needed
+    detector = create_detector(config)
+
+    # Print enabled features
+    features = []
+    if config.zoom.enabled:
+        features.append("zoom")
+    if config.deep_dream.enabled:
+        features.append("deep-dream")
+    if config.face.enabled:
+        features.append("face-detection")
+    elif config.detection.enabled or (config.morph.enabled and detector):
+        features.append(f"detection ({config.detection.model})")
+    if config.morph.enabled:
+        features.append(f"morph ({config.morph.style})")
+    if features:
+        print(f"Enabled features: {', '.join(features)}")
+
     # Read input
     with VideoReader(config.input_path) as reader:
         # Get first frame to determine dimensions

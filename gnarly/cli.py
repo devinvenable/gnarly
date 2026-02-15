@@ -6,7 +6,9 @@ from pathlib import Path
 from . import __version__
 from .config import ProcessingConfig
 from .core.ca import CAEngine
-from .effects.morph_effect import STYLE_NAMES
+
+# Define style names inline to avoid importing morph_effect (which requires torch)
+STYLE_NAMES = {"photorealistic", "surrealistic", "impressionist", "cyberpunk", "abstract"}
 
 EPILOG = """\
 Examples:

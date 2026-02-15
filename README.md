@@ -13,23 +13,67 @@ A Python-based creative visualization tool that combines cellular automata, Deep
 - Stable Diffusion integration for object generation
 - Face detection and landmark recognition
 
+## Two Ways to Use
+
+### 1. Headless Mode (New - Lightweight)
+
+The `gnarly` package provides CA-only batch processing with minimal dependencies:
+
+```bash
+# Install minimal dependencies
+pip install -r requirements-core.txt
+
+# Run headless batch processing
+python -m gnarly input.jpg -o output.mp4 --frames 300 --rule Conway
+```
+
+**Headless CLI Options:**
+```
+python -m gnarly input.mp4 -o output.mp4 \
+  --frames 300          # Frame count (for images)
+  --rule Conway         # CA rule: Conway, HighLife, Seeds, Custom, DivisorRule
+  --grid-scale 4        # CA cell size in pixels
+  --blend-alpha 0.3     # Blend factor for live cells
+  --fps 15              # Output FPS
+  --max-dimension 800   # Max frame dimension
+```
+
+### 2. Interactive Mode (Full-Featured)
+
+The original `main.py` includes Deep Dream, object detection, and real-time controls:
+
+```bash
+# Install full dependencies (requires GPU)
+pip install -r requirements.txt
+
+# Run interactive mode
+python main.py input_file [--output_file OUTPUT] [--creativity 0.5]
+```
+
 ## Requirements
 
+**Headless mode (minimal):**
+- Python 3.x
+- numpy, opencv-python, Pillow, tqdm
+
+**Interactive mode (full):**
 - Python 3.x
 - CUDA-capable GPU (recommended)
-- See `requirements.txt` for Python package dependencies
+- See `requirements.txt` for full dependencies
 
 ## Installation
 
 1. Clone this repository
-2. Install the required dependencies:
+2. Install dependencies:
    ```bash
+   # For headless CA-only processing
+   pip install -r requirements-core.txt
+
+   # For full interactive mode with Deep Dream
    pip install -r requirements.txt
    ```
 
-## Usage
-
-Basic usage:
+## Interactive Mode Usage
 
 ```bash
 python main.py input_file [--output_file OUTPUT_FILE] [--deep_dream_iterations ITERATIONS] [--deep_dream_lr LEARNING_RATE] [--creativity CREATIVITY_LEVEL]
@@ -65,6 +109,36 @@ During rendering, you can use the following keyboard controls to adjust paramete
 4. Stable Diffusion generates variations of detected objects
 5. Continuous zoom creates an infinite zoom effect
 6. All elements are combined into a seamless, evolving visual experience
+
+## Package Structure
+
+```
+gnarly/
+  __init__.py           # Package marker, version
+  __main__.py           # Entry point: python -m gnarly
+  cli.py                # Argument parsing
+  config.py             # Configuration dataclasses
+
+  core/
+    ca.py               # Cellular automata rules and CAEngine
+    io.py               # VideoReader/Writer classes
+    utils.py            # blend_images, zoom_image
+
+  effects/
+    base.py             # Effect protocol
+    ca_effect.py        # CA overlay effect
+
+  runners/
+    headless.py         # Batch processing loop
+```
+
+## Cellular Automata Rules
+
+- **Conway**: Classic Game of Life (B3/S23)
+- **HighLife**: Game of Life variant (B36/S23)
+- **Seeds**: Explosive growth pattern (B2/S)
+- **Custom**: Modified survival rules (B3/S234)
+- **DivisorRule**: Neighbor count modulo divisor
 
 ## Credits
 

@@ -6,8 +6,10 @@ from tqdm import tqdm
 
 from ..config import ProcessingConfig
 from ..core.io import VideoReader, VideoWriter, is_video_file
+from ..detection.base import Detector
 from ..effects.ca_effect import CAEffect
 from ..effects.deep_dream_effect import DeepDreamEffect
+from ..effects.morph_effect import MorphEffect
 from ..effects.pipeline import EffectPipeline
 from ..effects.zoom_effect import ZoomEffect
 
@@ -45,7 +47,7 @@ def prepare_frame(frame: np.ndarray, max_dim: int, grid_scale: int) -> np.ndarra
     return frame
 
 
-def run_headless(config: ProcessingConfig) -> None:
+def run_headless(config: ProcessingConfig, detector: Detector | None = None) -> None:
     """Run headless batch processing.
 
     Args:
@@ -91,12 +93,26 @@ def run_headless(config: ProcessingConfig) -> None:
                 max_zoom=config.zoom.max_zoom,
             )
         )
+    deep_dream_effect = None
     if config.deep_dream.enabled:
+        deep_dream_effect = DeepDreamEffect(
+            iterations=config.deep_dream.iterations,
+            learning_rate=config.deep_dream.learning_rate,
+            layers=config.deep_dream.layers,
+        )
+        effects.append(deep_dream_effect)
+    if config.morph.enabled:
         effects.append(
-            DeepDreamEffect(
-                iterations=config.deep_dream.iterations,
-                learning_rate=config.deep_dream.learning_rate,
-                layers=config.deep_dream.layers,
+            MorphEffect(
+                detector=detector,
+                detection_interval=config.detection.interval,
+                morph_frames=config.morph.frames,
+                morph_min_blend=config.morph.min_blend,
+                morph_max_blend=config.morph.max_blend,
+                max_objects_per_frame=config.detection.max_objects,
+                preferred_style=config.morph.style,
+                creativity=config.morph.creativity,
+                deep_dream_effect=deep_dream_effect,
             )
         )
 

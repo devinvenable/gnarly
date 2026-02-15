@@ -168,6 +168,35 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Maximum zoom level before reversing (default: 2.0)",
     )
 
+    # Detection arguments
+    parser.add_argument(
+        "--detect",
+        action="store_true",
+        help="Enable object detection (requires CUDA GPU)",
+    )
+
+    parser.add_argument(
+        "--detect-model",
+        type=str,
+        default="yolo",
+        choices=["yolo"],
+        help="Detection model to use (default: yolo)",
+    )
+
+    parser.add_argument(
+        "--detect-confidence",
+        type=float,
+        default=0.5,
+        help="Detection confidence threshold; 0.0-1.0 (default: 0.5)",
+    )
+
+    parser.add_argument(
+        "--detect-interval",
+        type=int,
+        default=30,
+        help="Run detection every N frames (default: 30)",
+    )
+
     parsed = parser.parse_args(args)
 
     # Validate input exists
@@ -196,4 +225,8 @@ def parse_args(args=None) -> ProcessingConfig:
             if parsed.dream_layers
             else None
         ),
+        detection_enabled=parsed.detect,
+        detection_model=parsed.detect_model,
+        detection_confidence=parsed.detect_confidence,
+        detection_interval=parsed.detect_interval,
     )

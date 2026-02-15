@@ -6,6 +6,7 @@ from pathlib import Path
 from . import __version__
 from .config import ProcessingConfig
 from .core.ca import CAEngine
+from .effects.morph_effect import STYLE_NAMES
 
 EPILOG = """\
 Examples:
@@ -168,11 +169,34 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Maximum zoom level before reversing (default: 2.0)",
     )
 
+    parser.add_argument(
+        "--morph",
+        action="store_true",
+        help="Enable object morphing effect (requires detector integration and CUDA)",
+    )
+
+    parser.add_argument(
+        "--morph-style",
+        type=str,
+        default="random",
+        choices=["random", *sorted(STYLE_NAMES)],
+        help="Morph image style preset (default: random)",
+    )
+
+    parser.add_argument(
+        "--creativity",
+        type=float,
+        default=0.5,
+        help="Creativity level for morph prompt/guidance variation, 0.0-1.0 (default: 0.5)",
+    )
+
     parsed = parser.parse_args(args)
 
     # Validate input exists
     if not Path(parsed.input).exists():
         parser.error(f"Input file not found: {parsed.input}")
+    if not 0.0 <= parsed.creativity <= 1.0:
+        parser.error("--creativity must be between 0.0 and 1.0")
 
     return ProcessingConfig.from_args(
         input_path=parsed.input,
@@ -196,4 +220,7 @@ def parse_args(args=None) -> ProcessingConfig:
             if parsed.dream_layers
             else None
         ),
+        morph_enabled=parsed.morph,
+        morph_style=parsed.morph_style,
+        morph_creativity=parsed.creativity,
     )

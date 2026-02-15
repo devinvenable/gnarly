@@ -72,7 +72,8 @@ class MorphConfig:
     """Configuration for object morphing."""
 
     enabled: bool = False
-    style: str = "blend"
+    style: str = "random"
+    creativity: float = 0.5
     frames: int = 30
     min_blend: float = 0.0
     max_blend: float = 1.0
@@ -132,7 +133,8 @@ class ProcessingConfig:
         detection_interval: int = 30,
         # Morph config
         morph_enabled: bool = False,
-        morph_style: str = "blend",
+        morph_style: str = "random",
+        morph_creativity: float = 0.5,
         morph_frames: int = 30,
         morph_min_blend: float = 0.0,
         morph_max_blend: float = 1.0,
@@ -169,6 +171,7 @@ class ProcessingConfig:
             morph=MorphConfig(
                 enabled=morph_enabled,
                 style=morph_style,
+                creativity=morph_creativity,
                 frames=morph_frames,
                 min_blend=morph_min_blend,
                 max_blend=morph_max_blend,

@@ -2,6 +2,7 @@
 
 from .base import Detection, Detector
 from .face import FaceDetection, FaceDetector, detect_faces_and_landmarks, get_shape_predictor_path
+from .yolo import YOLODetector
 
 __all__ = [
     "Detection",
@@ -10,4 +11,5 @@ __all__ = [
     "FaceDetector",
     "detect_faces_and_landmarks",
     "get_shape_predictor_path",
+    "YOLODetector",
 ]

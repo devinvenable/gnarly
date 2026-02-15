@@ -4,6 +4,13 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 
+DREAM_LAYERS = [
+    "Mixed_7a.branch3x3_2a.conv",
+    "Mixed_7b.branch3x3_2b.conv",
+    "Mixed_7c.branch3x3_2c.conv",
+]
+
+
 @dataclass
 class CAConfig:
     """Configuration for cellular automata."""
@@ -45,7 +52,7 @@ class DeepDreamConfig:
     enabled: bool = False
     iterations: int = 30
     learning_rate: float = 0.02
-    layers: List[str] = field(default_factory=lambda: ["mixed4c", "mixed4d"])
+    layers: List[str] = field(default_factory=lambda: list(DREAM_LAYERS))
 
 
 @dataclass
@@ -149,7 +156,7 @@ class ProcessingConfig:
                 enabled=deep_dream_enabled,
                 iterations=deep_dream_iterations,
                 learning_rate=deep_dream_lr,
-                layers=deep_dream_layers or ["mixed4c", "mixed4d"],
+                layers=deep_dream_layers or list(DREAM_LAYERS),
             ),
             detection=DetectionConfig(
                 enabled=detection_enabled,

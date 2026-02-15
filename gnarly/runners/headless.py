@@ -7,6 +7,9 @@ from tqdm import tqdm
 from ..config import ProcessingConfig
 from ..core.io import VideoReader, VideoWriter, is_video_file
 from ..effects.ca_effect import CAEffect
+from ..effects.deep_dream_effect import DeepDreamEffect
+from ..effects.pipeline import EffectPipeline
+from ..effects.zoom_effect import ZoomEffect
 
 
 def prepare_frame(frame: np.ndarray, max_dim: int, grid_scale: int) -> np.ndarray:
@@ -69,15 +72,35 @@ def run_headless(config: ProcessingConfig) -> None:
             total_frames = config.output.frames
             fps = config.output.fps
 
-    # Create effect
-    effect = CAEffect(
-        width=width,
-        height=height,
-        grid_scale=config.ca.grid_scale,
-        rule=config.ca.rule,
-        divisor=config.ca.divisor,
-        blend_alpha=config.effect.blend_alpha,
-    )
+    # Build effect pipeline
+    effects = [
+        CAEffect(
+            width=width,
+            height=height,
+            grid_scale=config.ca.grid_scale,
+            rule=config.ca.rule,
+            divisor=config.ca.divisor,
+            blend_alpha=config.effect.blend_alpha,
+        )
+    ]
+    if config.zoom.enabled:
+        effects.append(
+            ZoomEffect(
+                speed=config.zoom.speed,
+                min_zoom=config.zoom.min_zoom,
+                max_zoom=config.zoom.max_zoom,
+            )
+        )
+    if config.deep_dream.enabled:
+        effects.append(
+            DeepDreamEffect(
+                iterations=config.deep_dream.iterations,
+                learning_rate=config.deep_dream.learning_rate,
+                layers=config.deep_dream.layers,
+            )
+        )
+
+    effect = EffectPipeline(effects)
 
     # Process frames
     with VideoWriter(config.output_path, width, height, fps) as writer:

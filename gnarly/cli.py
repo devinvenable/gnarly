@@ -20,8 +20,7 @@ CA Rules:
   Custom      Modified survival (B3/S234) - denser patterns
   DivisorRule Modulo-based rule using --divisor value
 
-Note: This is the lightweight headless mode. No GPU required.
-For Deep Dream + GPU features, use: python main.py
+Use `--deep-dream` to enable GPU Deep Dream processing.
 """
 
 
@@ -111,6 +110,36 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Scale down frames to this max width/height for faster processing (default: 800)",
     )
 
+    parser.add_argument(
+        "--deep-dream",
+        action="store_true",
+        help="Enable Deep Dream effect (requires CUDA GPU)",
+    )
+
+    parser.add_argument(
+        "--dream-iterations",
+        type=int,
+        default=30,
+        help="Deep Dream optimization iterations per frame (default: 30)",
+    )
+
+    parser.add_argument(
+        "--dream-lr",
+        type=float,
+        default=0.02,
+        help="Deep Dream learning rate (default: 0.02)",
+    )
+
+    parser.add_argument(
+        "--dream-layers",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated Inception layer names for Deep Dream targets "
+            "(default: built-in Mixed_7* layers)"
+        ),
+    )
+
     # Zoom effect arguments
     parser.add_argument(
         "--zoom",
@@ -159,4 +188,12 @@ def parse_args(args=None) -> ProcessingConfig:
         zoom_speed=parsed.zoom_speed,
         zoom_min=parsed.zoom_min,
         zoom_max=parsed.zoom_max,
+        deep_dream_enabled=parsed.deep_dream,
+        deep_dream_iterations=parsed.dream_iterations,
+        deep_dream_lr=parsed.dream_lr,
+        deep_dream_layers=(
+            [layer.strip() for layer in parsed.dream_layers.split(",") if layer.strip()]
+            if parsed.dream_layers
+            else None
+        ),
     )

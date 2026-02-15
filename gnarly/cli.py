@@ -168,6 +168,49 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Maximum zoom level before reversing (default: 2.0)",
     )
 
+    # Detection effect arguments
+    parser.add_argument(
+        "--detect",
+        action="store_true",
+        help="Enable object detection",
+    )
+
+    parser.add_argument(
+        "--detect-model",
+        type=str,
+        default="yolo",
+        choices=["yolo", "efficientdet"],
+        help="Detection model: yolo, efficientdet (default: yolo)",
+    )
+
+    parser.add_argument(
+        "--detect-confidence",
+        type=float,
+        default=0.5,
+        help="Detection confidence threshold (default: 0.5)",
+    )
+
+    parser.add_argument(
+        "--detect-iou",
+        type=float,
+        default=0.4,
+        help="Detection IOU threshold (default: 0.4)",
+    )
+
+    parser.add_argument(
+        "--detect-max-objects",
+        type=int,
+        default=10,
+        help="Maximum number of objects to detect per frame (default: 10)",
+    )
+
+    parser.add_argument(
+        "--detect-interval",
+        type=int,
+        default=30,
+        help="Interval in frames between detection runs (default: 30)",
+    )
+
     parsed = parser.parse_args(args)
 
     # Validate input exists
@@ -196,4 +239,10 @@ def parse_args(args=None) -> ProcessingConfig:
             if parsed.dream_layers
             else None
         ),
+        detection_enabled=parsed.detect,
+        detection_model=parsed.detect_model,
+        detection_confidence=parsed.detect_confidence,
+        detection_iou=parsed.detect_iou,
+        detection_max_objects=parsed.detect_max_objects,
+        detection_interval=parsed.detect_interval,
     )

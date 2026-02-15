@@ -3,5 +3,6 @@
 from .base import Effect
 from .ca_effect import CAEffect
 from .pipeline import EffectPipeline
+from .zoom_effect import ZoomEffect
 
-__all__ = ["Effect", "CAEffect", "EffectPipeline"]
+__all__ = ["Effect", "CAEffect", "EffectPipeline", "ZoomEffect"]

@@ -111,6 +111,34 @@ def parse_args(args=None) -> ProcessingConfig:
         help="Scale down frames to this max width/height for faster processing (default: 800)",
     )
 
+    # Zoom effect arguments
+    parser.add_argument(
+        "--zoom",
+        action="store_true",
+        help="Enable continuous zoom effect",
+    )
+
+    parser.add_argument(
+        "--zoom-speed",
+        type=float,
+        default=1.02,
+        help="Zoom factor multiplier per frame; 1.02 = 2%% zoom/frame (default: 1.02)",
+    )
+
+    parser.add_argument(
+        "--zoom-min",
+        type=float,
+        default=1.0,
+        help="Minimum zoom level; 1.0 = no zoom (default: 1.0)",
+    )
+
+    parser.add_argument(
+        "--zoom-max",
+        type=float,
+        default=2.0,
+        help="Maximum zoom level before reversing (default: 2.0)",
+    )
+
     parsed = parser.parse_args(args)
 
     # Validate input exists
@@ -127,4 +155,8 @@ def parse_args(args=None) -> ProcessingConfig:
         fps=parsed.fps,
         frames=parsed.frames,
         max_dimension=parsed.max_dimension,
+        zoom_enabled=parsed.zoom,
+        zoom_speed=parsed.zoom_speed,
+        zoom_min=parsed.zoom_min,
+        zoom_max=parsed.zoom_max,
     )

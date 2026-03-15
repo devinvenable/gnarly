@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from torchvision import transforms, models
 from torchvision.models import Inception_V3_Weights
 
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusionImg2ImgPipeline
 
 # ==== Configuration Constants ====
 FPS = 15
@@ -95,6 +95,9 @@ OBJECT_DETECTION_INTERVAL = 5
 MORPH_FRAMES = 60
 MORPH_MIN_BLEND = 0.1
 MORPH_MAX_BLEND = 0.7
+MORPH_MIN_STRENGTH = 0.15
+MORPH_MAX_STRENGTH = 0.75
+MORPH_REGEN_INTERVAL = 3  # Regenerate every N frames for performance
 MAX_OBJECTS_PER_FRAME = 3
 MAX_OBJECT_SIZE_RATIO = 0.25
 
@@ -471,43 +474,67 @@ def detect_objects_in_patches(image, model, detect_fn, min_size=20):
     return pd.DataFrame()
 
 def load_stable_diffusion_pipeline():
-    """Load the Stable Diffusion pipeline for image generation."""
-    print("Loading Stable Diffusion pipeline for image generation...")
+    """Load the Stable Diffusion img2img pipeline for image generation."""
+    print("Loading Stable Diffusion img2img pipeline for image generation...")
     try:
-        pipeline = StableDiffusionPipeline.from_pretrained(
+        pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
             'CompVis/stable-diffusion-v1-4',
             torch_dtype=torch.float16 if DEVICE == 'cuda' else torch.float32
         ).to(DEVICE)
-        print("Stable Diffusion pipeline loaded successfully!")
+        print("Stable Diffusion img2img pipeline loaded successfully!")
         return pipeline
     except Exception as e:
         print(f"Error loading Stable Diffusion pipeline: {e}")
         sys.exit()
 
-def generate_image(obj_name, pipeline):
+def generate_image(obj_name, pipeline, source_image, strength=0.5):
+    """Generate image using img2img pipeline with source region as input.
+
+    Args:
+        obj_name: Object class name for prompt generation.
+        pipeline: StableDiffusionImg2ImgPipeline instance.
+        source_image: PIL Image of the source region to transform.
+        strength: How much to transform the source (0.0=no change, 1.0=full generation).
+    """
     try:
         style = random.choice(ARTISTIC_STYLES)
         prompt_template = random.choice(style['prompts'])
         prompt = prompt_template.format(obj=obj_name)
-        
+
+        # Resize source to 512x512 for SD pipeline
+        source_resized = source_image.resize((512, 512), Image.LANCZOS)
+
         with torch.autocast(DEVICE):
             generated_image = pipeline(
-                prompt, 
-                guidance_scale=style['guidance_scale']
+                prompt,
+                image=source_resized,
+                strength=strength,
+                guidance_scale=style['guidance_scale'],
+                num_inference_steps=20
             ).images[0]
-        print(f"Generated {style['name']} image for {obj_name} with prompt: '{prompt}'")
+        print(f"Generated {style['name']} img2img (strength={strength:.2f}) for {obj_name}")
         return generated_image
     except Exception as e:
         print(f"Error during image generation: {e}")
         return None
 
-def morph_detected_objects(current_frame, detected_objects, pipeline, deep_dream_model, dream_layers, deep_dream_iterations, deep_dream_lr, morph_states, frame_counter):
+def morph_detected_objects(current_frame, detected_objects, pipeline, morph_states, frame_counter):
     try:
         pil_frame = Image.fromarray(current_frame)
         active_morphs = []
         for morph in list(morph_states):
             if morph.update():
                 region = pil_frame.crop(morph.region)
+                # Regenerate with increasing strength using current frame region as source
+                if morph.needs_regen:
+                    morph.needs_regen = False
+                    strength = morph.get_strength()
+                    regenerated = generate_image(
+                        morph.class_name, pipeline, region, strength=strength
+                    )
+                    if regenerated is not None:
+                        morph.generated_image = regenerated.resize(region.size)
+                        print(f"Regenerated {morph.obj_id} at strength={strength:.2f}")
                 blend_factor = morph.get_blend_factor()
                 mask = Image.new('L', region.size, int(255 * blend_factor))
                 mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
@@ -526,28 +553,27 @@ def morph_detected_objects(current_frame, detected_objects, pipeline, deep_dream
                 overlap = False
                 for morph in active_morphs:
                     old_x1, old_y1, old_x2, old_y2 = morph.region
-                    if (x_min < old_x2 and x_max > old_x1 and 
+                    if (x_min < old_x2 and x_max > old_x1 and
                         y_min < old_y2 and y_max > old_y1):
                         overlap = True
                         break
                 if not overlap:
-                    generated_image = generate_image(class_name, pipeline)
+                    # Extract source region from current frame for img2img
+                    source_region = pil_frame.crop((x_min, y_min, x_max, y_max))
+                    initial_strength = MORPH_MIN_STRENGTH
+                    style = random.choice(ARTISTIC_STYLES)
+                    generated_image = generate_image(
+                        class_name, pipeline, source_region, strength=initial_strength
+                    )
                     if generated_image is not None:
-                        region = pil_frame.crop((x_min, y_min, x_max, y_max))
-                        generated_resized = generated_image.resize(region.size)
-                        generated_dreamed = deep_dream_processing(
-                            np.array(generated_resized),
-                            model=deep_dream_model,
-                            layers=dream_layers,
-                            iterations=deep_dream_iterations,
-                            lr=deep_dream_lr
-                        )
-                        generated_dreamed_image = Image.fromarray(generated_dreamed)
+                        generated_resized = generated_image.resize(source_region.size)
                         morph_state = MorphState(
                             obj_id,
                             (x_min, y_min, x_max, y_max),
-                            generated_dreamed_image,
-                            frame_counter
+                            generated_resized,
+                            frame_counter,
+                            class_name,
+                            style
                         )
                         active_morphs.append(morph_state)
                     else:
@@ -576,18 +602,31 @@ def is_video_file(filename):
     return any(filename.lower().endswith(ext) for ext in video_extensions)
 
 class MorphState:
-    def __init__(self, obj_id, region, generated_image, frame_start):
+    def __init__(self, obj_id, region, generated_image, frame_start, class_name, style):
         self.obj_id = obj_id
         self.region = region
         self.generated_image = generated_image
         self.frame_start = frame_start
         self.frame_count = 0
+        self.class_name = class_name
+        self.style = style
+        self.needs_regen = False
+
     def get_blend_factor(self):
         progress = min(1.0, self.frame_count / MORPH_FRAMES)
         blend = MORPH_MIN_BLEND + (MORPH_MAX_BLEND - MORPH_MIN_BLEND) * progress
         return blend
+
+    def get_strength(self):
+        """Get img2img strength that ramps from MIN to MAX over morph duration."""
+        progress = min(1.0, self.frame_count / MORPH_FRAMES)
+        return MORPH_MIN_STRENGTH + (MORPH_MAX_STRENGTH - MORPH_MIN_STRENGTH) * progress
+
     def update(self):
         self.frame_count += 1
+        # Mark for regeneration every N frames
+        if self.frame_count % MORPH_REGEN_INTERVAL == 0:
+            self.needs_regen = True
         return self.frame_count < MORPH_FRAMES
 
 # ==== Main Function ====
@@ -749,6 +788,39 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                  cumulative_dream_image_array.astype(np.float32) * (1 - blend_alpha)) * alive_mask[:, :, np.newaxis] +
                 cumulative_dream_image_array.astype(np.float32) * dead_mask[:, :, np.newaxis]
             ).astype(np.uint8)
+            # Morph BEFORE Deep Dream so dream textures affect morphed regions
+            if not hasattr(main, 'morph_states'):
+                main.morph_states = []
+            if object_detection_enabled and frame_counter % OBJECT_DETECTION_INTERVAL == 0:
+                print("Performing object detection and morphing...")
+                if use_yolo:
+                    detected_objects = detect_objects_in_patches(composite_image, yolo_model, detect_objects_yolo)
+                    print("Using YOLOv5 for detection.")
+                else:
+                    detected_objects = detect_objects_in_patches(composite_image, efficientdet_model, detect_objects_efficientdet)
+                    print("Using EfficientDet for detection.")
+                use_yolo = not use_yolo
+                if detected_objects is not None and not detected_objects.empty:
+                    composite_image = morph_detected_objects(
+                        composite_image,
+                        detected_objects,
+                        sd_pipeline,
+                        main.morph_states,
+                        frame_counter
+                    )
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                else:
+                    print("No objects detected in this iteration.")
+            elif len(main.morph_states) > 0:
+                composite_image = morph_detected_objects(
+                    composite_image,
+                    pd.DataFrame(),
+                    sd_pipeline,
+                    main.morph_states,
+                    frame_counter
+                )
+            # Deep Dream processes everything including morphed regions
             deep_dreamed_image_array = deep_dream_processing(
                 composite_image,
                 model=deep_dream_model,
@@ -762,45 +834,6 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 if current_zoom > MAX_ZOOM:
                     current_zoom = MIN_ZOOM
             cumulative_dream_image_array = zoom_image(cumulative_dream_image_array, current_zoom)
-            if not hasattr(main, 'morph_states'):
-                main.morph_states = []
-            if object_detection_enabled and frame_counter % OBJECT_DETECTION_INTERVAL == 0:
-                print("Performing object detection and morphing...")
-                if use_yolo:
-                    detected_objects = detect_objects_in_patches(cumulative_dream_image_array, yolo_model, detect_objects_yolo)
-                    print("Using YOLOv5 for detection.")
-                else:
-                    detected_objects = detect_objects_in_patches(cumulative_dream_image_array, efficientdet_model, detect_objects_efficientdet)
-                    print("Using EfficientDet for detection.")
-                use_yolo = not use_yolo
-                if detected_objects is not None and not detected_objects.empty:
-                    cumulative_dream_image_array = morph_detected_objects(
-                        cumulative_dream_image_array,
-                        detected_objects,
-                        sd_pipeline,
-                        deep_dream_model,
-                        DREAM_LAYERS,
-                        deep_dream_iterations,
-                        deep_dream_lr,
-                        main.morph_states,
-                        frame_counter
-                    )
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                else:
-                    print("No objects detected in this iteration.")
-            elif len(main.morph_states) > 0:
-                cumulative_dream_image_array = morph_detected_objects(
-                    cumulative_dream_image_array,
-                    pd.DataFrame(),
-                    sd_pipeline,
-                    deep_dream_model,
-                    DREAM_LAYERS,
-                    deep_dream_iterations,
-                    deep_dream_lr,
-                    main.morph_states,
-                    frame_counter
-                )
             previous_output = content_image_array.copy()
             display_image = cumulative_dream_image_array
             try:

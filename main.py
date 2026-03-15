@@ -98,6 +98,7 @@ MORPH_MAX_BLEND = 0.7
 MORPH_MIN_STRENGTH = 0.15
 MORPH_MAX_STRENGTH = 0.75
 MORPH_REGEN_INTERVAL = 3  # Regenerate every N frames for performance
+CUSTOM_PROMPT_GUIDANCE_SCALE = 7.5
 MAX_OBJECTS_PER_FRAME = 3
 MAX_OBJECT_SIZE_RATIO = 0.25
 
@@ -487,11 +488,19 @@ def load_stable_diffusion_pipeline():
         print(f"Error loading Stable Diffusion pipeline: {e}")
         sys.exit()
 
-def build_morph_prompt_plan(obj_name):
+def build_morph_prompt_plan(obj_name, custom_prompt=None):
     """Create a stable source/target prompt pair for a morph sequence."""
+    source_prompt = f"a detailed photo of a {obj_name}"
+    if custom_prompt:
+        return {
+            'style_name': 'custom',
+            'source_prompt': source_prompt,
+            'target_prompt': custom_prompt,
+            'guidance_scale': CUSTOM_PROMPT_GUIDANCE_SCALE
+        }
+
     style = random.choice(ARTISTIC_STYLES)
     target_template = random.choice(style['prompts'])
-    source_prompt = f"a detailed photo of a {obj_name}"
     target_prompt = target_template.format(obj=obj_name)
     return {
         'style_name': style['name'],
@@ -499,6 +508,13 @@ def build_morph_prompt_plan(obj_name):
         'target_prompt': target_prompt,
         'guidance_scale': style['guidance_scale']
     }
+
+def reset_morph_prompt_plans(morph_states, custom_prompt):
+    """Update active morphs to use a newly submitted custom target prompt."""
+    for morph in morph_states:
+        morph.prompt_plan = build_morph_prompt_plan(morph.class_name, custom_prompt)
+        morph.frame_count = 0
+        morph.needs_regen = True
 
 def encode_prompt_embeddings(pipeline, prompt):
     """Encode prompt text into CLIP embeddings compatible with diffusers."""
@@ -601,7 +617,7 @@ def generate_image(obj_name, pipeline, source_image, prompt_plan, strength=0.5, 
         print(f"Error during image generation: {e}")
         return None
 
-def morph_detected_objects(current_frame, detected_objects, pipeline, morph_states, frame_counter):
+def morph_detected_objects(current_frame, detected_objects, pipeline, morph_states, frame_counter, custom_prompt=None):
     try:
         pil_frame = Image.fromarray(current_frame)
         active_morphs = []
@@ -653,7 +669,7 @@ def morph_detected_objects(current_frame, detected_objects, pipeline, morph_stat
                     # Extract source region from current frame for img2img
                     source_region = pil_frame.crop((x_min, y_min, x_max, y_max))
                     initial_strength = MORPH_MIN_STRENGTH
-                    prompt_plan = build_morph_prompt_plan(class_name)
+                    prompt_plan = build_morph_prompt_plan(class_name, custom_prompt)
                     generated_image = generate_image(
                         class_name,
                         pipeline,
@@ -794,6 +810,7 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
         sd_pipeline = load_stable_diffusion_pipeline()
         pygame.init()
         overlay_font = pygame.font.SysFont("Arial", 14)
+        input_font = pygame.font.SysFont("Arial", 20)
         screen = pygame.display.set_mode((width, height))
         clock = pygame.time.Clock()
         print(f"Pygame window initialized with size {width}x{height}")
@@ -811,6 +828,10 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
         previous_output = None
         frame_counter = 0
         use_yolo = True  # Toggle between YOLOv5 and EfficientDet
+        main.morph_states = []
+        custom_morph_prompt = None
+        text_input_active = False
+        text_input_buffer = ""
         running = True
         while running:
             frame_counter += 1
@@ -818,8 +839,33 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
+                    if text_input_active:
+                        if event.key == pygame.K_ESCAPE:
+                            text_input_active = False
+                            text_input_buffer = ""
+                            print("Cancelled custom morph prompt input.")
+                        elif event.key == pygame.K_RETURN:
+                            submitted_prompt = text_input_buffer.strip()
+                            if submitted_prompt:
+                                custom_morph_prompt = submitted_prompt
+                                reset_morph_prompt_plans(main.morph_states, custom_morph_prompt)
+                                print(f"Set custom morph prompt to: {custom_morph_prompt}")
+                            else:
+                                print("Ignoring empty custom morph prompt.")
+                            text_input_active = False
+                            text_input_buffer = ""
+                        elif event.key == pygame.K_BACKSPACE:
+                            text_input_buffer = text_input_buffer[:-1]
+                        elif event.unicode and event.unicode.isprintable():
+                            text_input_buffer += event.unicode
+                        continue
+
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_t:
+                        text_input_active = True
+                        text_input_buffer = custom_morph_prompt or ""
+                        print("Custom morph prompt input enabled.")
                     elif event.key == pygame.K_SPACE:
                         rule_index = (rule_index + 1) % len(rules)
                         current_rule = rules[rule_index]
@@ -890,8 +936,6 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 cumulative_dream_image_array.astype(np.float32) * dead_mask[:, :, np.newaxis]
             ).astype(np.uint8)
             # Morph BEFORE Deep Dream so dream textures affect morphed regions
-            if not hasattr(main, 'morph_states'):
-                main.morph_states = []
             if object_detection_enabled and frame_counter % OBJECT_DETECTION_INTERVAL == 0:
                 print("Performing object detection and morphing...")
                 if use_yolo:
@@ -907,7 +951,8 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                         detected_objects,
                         sd_pipeline,
                         main.morph_states,
-                        frame_counter
+                        frame_counter,
+                        custom_morph_prompt
                     )
                     torch.cuda.empty_cache()
                     gc.collect()
@@ -919,7 +964,8 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                     pd.DataFrame(),
                     sd_pipeline,
                     main.morph_states,
-                    frame_counter
+                    frame_counter,
+                    custom_morph_prompt
                 )
             # Deep Dream processes everything including morphed regions
             deep_dreamed_image_array = deep_dream_processing(
@@ -950,6 +996,7 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 f"[/] - Creativity: {CREATIVITY:.1f}",
                 f"Z - Zoom: {'On' if zoom_enabled else 'Off'}",
                 f"O - Objects: {'On' if object_detection_enabled else 'Off'}",
+                f"T - Prompt: {custom_morph_prompt or 'Random styles'}",
                 "R - Reset | ESC - Quit"
             ]
             y_offset = 5
@@ -962,6 +1009,14 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 surface.blit(bg_surface, text_rect)
                 surface.blit(text_surface, text_rect)
                 y_offset += text_rect.height + 2
+            if text_input_active:
+                input_overlay_height = 42
+                input_overlay = pygame.Surface((width, input_overlay_height), pygame.SRCALPHA)
+                input_overlay.fill((0, 0, 0, 190))
+                surface.blit(input_overlay, (0, height - input_overlay_height))
+                prompt_label = f"Custom morph prompt: {text_input_buffer or '_'}"
+                prompt_surface = input_font.render(prompt_label, True, (255, 255, 255))
+                surface.blit(prompt_surface, (10, height - input_overlay_height + 10))
             screen.blit(surface, (0, 0))
             pygame.display.flip()
             try:

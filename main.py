@@ -20,6 +20,7 @@ import numpy as np
 import pygame
 import torch
 from PIL import Image, ImageDraw, ImageFilter
+from scipy.ndimage import gaussian_filter
 from torchvision import transforms, models
 from torchvision.models import Inception_V3_Weights
 
@@ -87,9 +88,28 @@ ARTISTIC_STYLES = [
 DEFAULT_GRID_SCALE = 4      # More blocky default from earlier version
 DEFAULT_DIVISOR = 2
 DEFAULT_BLEND_ALPHA = 0.3   # Lower alpha to emphasize grid pattern
-DEEP_DREAM_ITERATIONS = 30  
+DEEP_DREAM_ITERATIONS = 30
 DEEP_DREAM_LR = 0.02
 DREAM_LAYERS = ['Mixed_7a.branch3x3_2a.conv', 'Mixed_7b.branch3x3_2b.conv', 'Mixed_7c.branch3x3_2c.conv']
+
+# Layer groups for rotation (early=edges/textures, mid=patterns, late=high-level features)
+DREAM_LAYER_GROUPS = [
+    ['Mixed_5b.branch3x3dbl_1.conv', 'Mixed_5c.branch3x3dbl_1.conv', 'Mixed_5d.branch3x3dbl_1.conv'],
+    ['Mixed_6a.branch3x3.conv', 'Mixed_6b.branch3x3dbl_1.conv', 'Mixed_6c.branch3x3dbl_1.conv', 'Mixed_6d.branch3x3dbl_1.conv', 'Mixed_6e.branch3x3dbl_1.conv'],
+    ['Mixed_7a.branch3x3_2a.conv', 'Mixed_7b.branch3x3_2b.conv', 'Mixed_7c.branch3x3_2c.conv'],
+]
+DREAM_LAYER_ROTATE_INTERVAL = 30  # Rotate layer group every N frames
+
+# Decay factor for dream feedback loop (prevents pattern saturation)
+DREAM_DECAY = 0.85
+
+# Dream intensity presets: (name, iterations, learning_rate)
+DREAM_PRESETS = [
+    ('off', 0, 0.0),
+    ('light', 10, 0.01),
+    ('medium', 30, 0.02),
+    ('heavy', 50, 0.04),
+]
 
 OBJECT_DETECTION_INTERVAL = 5
 MORPH_FRAMES = 60
@@ -830,6 +850,8 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
         use_yolo = True  # Toggle between YOLOv5 and EfficientDet
         main.morph_states = []
         custom_morph_prompt = None
+        dream_preset_index = 2  # Start at 'medium' preset
+        dream_layer_group_index = 2  # Start with late layers (original behavior)
         text_input_active = False
         text_input_buffer = ""
         running = True
@@ -913,6 +935,10 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                     elif event.key == pygame.K_RIGHTBRACKET:
                         CREATIVITY = min(1.0, CREATIVITY + 0.1)
                         print(f"Increased creativity to {CREATIVITY:.1f}")
+                    elif event.key == pygame.K_d:
+                        dream_preset_index = (dream_preset_index + 1) % len(DREAM_PRESETS)
+                        preset_name, deep_dream_iterations, deep_dream_lr = DREAM_PRESETS[dream_preset_index]
+                        print(f"Dream preset: {preset_name} (iter={deep_dream_iterations}, lr={deep_dream_lr})")
             if cap is not None:
                 ret, frame = cap.read()
                 if not ret:
@@ -967,15 +993,46 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                     frame_counter,
                     custom_morph_prompt
                 )
-            # Deep Dream processes everything including morphed regions
-            deep_dreamed_image_array = deep_dream_processing(
-                composite_image,
-                model=deep_dream_model,
-                layers=DREAM_LAYERS,
-                iterations=deep_dream_iterations,
-                lr=deep_dream_lr
-            )
-            cumulative_dream_image_array = deep_dreamed_image_array.copy()
+            # CHANGE 2: Rotate dream layers every N frames
+            if frame_counter % DREAM_LAYER_ROTATE_INTERVAL == 0:
+                dream_layer_group_index = (dream_layer_group_index + 1) % len(DREAM_LAYER_GROUPS)
+                print(f"Rotated dream layers to group {dream_layer_group_index}")
+            current_dream_layers = DREAM_LAYER_GROUPS[dream_layer_group_index]
+
+            # Deep Dream processing (skipped when preset is 'off')
+            if deep_dream_iterations > 0:
+                deep_dreamed_image_array = deep_dream_processing(
+                    composite_image,
+                    model=deep_dream_model,
+                    layers=current_dream_layers,
+                    iterations=deep_dream_iterations,
+                    lr=deep_dream_lr
+                )
+
+                # CHANGE 1 & 4: Build gradient mask from morph regions to protect morphed content
+                if len(main.morph_states) > 0:
+                    morph_mask = np.zeros((height, width), dtype=np.float32)
+                    for morph in main.morph_states:
+                        x_min, y_min, x_max, y_max = morph.region
+                        morph_mask[y_min:y_max, x_min:x_max] = 1.0
+                    # CHANGE 4: Gaussian blur for smooth gradient falloff around morph regions
+                    morph_mask = gaussian_filter(morph_mask, sigma=30)
+                    morph_mask = np.clip(morph_mask, 0.0, 1.0)
+                    # Where mask=1 (morphed), keep composite; where mask=0, use dream output
+                    morph_mask_3d = morph_mask[:, :, np.newaxis]
+                    deep_dreamed_image_array = (
+                        composite_image.astype(np.float32) * morph_mask_3d +
+                        deep_dreamed_image_array.astype(np.float32) * (1.0 - morph_mask_3d)
+                    ).astype(np.uint8)
+
+                # CHANGE 3: Decay the feedback loop to prevent pattern saturation
+                cumulative_dream_image_array = (
+                    DREAM_DECAY * deep_dreamed_image_array.astype(np.float32) +
+                    (1.0 - DREAM_DECAY) * content_image_array.astype(np.float32)
+                ).astype(np.uint8)
+            else:
+                # Dream is off - pass through composite directly
+                cumulative_dream_image_array = composite_image.copy()
             if zoom_enabled:
                 current_zoom += ZOOM_SPEED
                 if current_zoom > MAX_ZOOM:
@@ -994,6 +1051,7 @@ def main(input_path, output_path=None, deep_dream_iterations=30, deep_dream_lr=0
                 f"↑/↓ - Divisor: {divisor}",
                 f"B/N - Blend: {blend_alpha:.1f}",
                 f"[/] - Creativity: {CREATIVITY:.1f}",
+                f"D - Dream: {DREAM_PRESETS[dream_preset_index][0]}",
                 f"Z - Zoom: {'On' if zoom_enabled else 'Off'}",
                 f"O - Objects: {'On' if object_detection_enabled else 'Off'}",
                 f"T - Prompt: {custom_morph_prompt or 'Random styles'}",

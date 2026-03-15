@@ -487,32 +487,115 @@ def load_stable_diffusion_pipeline():
         print(f"Error loading Stable Diffusion pipeline: {e}")
         sys.exit()
 
-def generate_image(obj_name, pipeline, source_image, strength=0.5):
+def build_morph_prompt_plan(obj_name):
+    """Create a stable source/target prompt pair for a morph sequence."""
+    style = random.choice(ARTISTIC_STYLES)
+    target_template = random.choice(style['prompts'])
+    source_prompt = f"a detailed photo of a {obj_name}"
+    target_prompt = target_template.format(obj=obj_name)
+    return {
+        'style_name': style['name'],
+        'source_prompt': source_prompt,
+        'target_prompt': target_prompt,
+        'guidance_scale': style['guidance_scale']
+    }
+
+def encode_prompt_embeddings(pipeline, prompt):
+    """Encode prompt text into CLIP embeddings compatible with diffusers."""
+    tokenizer = pipeline.tokenizer
+    text_encoder = pipeline.text_encoder
+    text_inputs = tokenizer(
+        prompt,
+        padding='max_length',
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+        return_tensors='pt'
+    )
+    text_inputs = {key: value.to(DEVICE) for key, value in text_inputs.items()}
+    text_encoder_kwargs = {}
+    if 'attention_mask' in text_inputs:
+        text_encoder_kwargs['attention_mask'] = text_inputs['attention_mask']
+    with torch.no_grad():
+        prompt_embeds = text_encoder(
+            text_inputs['input_ids'],
+            **text_encoder_kwargs
+        )[0]
+    return prompt_embeds
+
+def ensure_prompt_plan_embeddings(pipeline, prompt_plan):
+    """Cache encoded prompt embeddings so repeated morph regenerations stay cheap."""
+    if 'source_prompt_embeds' not in prompt_plan:
+        prompt_plan['source_prompt_embeds'] = encode_prompt_embeddings(
+            pipeline, prompt_plan['source_prompt']
+        )
+    if 'target_prompt_embeds' not in prompt_plan:
+        prompt_plan['target_prompt_embeds'] = encode_prompt_embeddings(
+            pipeline, prompt_plan['target_prompt']
+        )
+    if 'negative_prompt_embeds' not in prompt_plan:
+        prompt_plan['negative_prompt_embeds'] = encode_prompt_embeddings(pipeline, "")
+
+def slerp_embeddings(start_embeds, end_embeds, amount):
+    """Spherically interpolate between two CLIP embedding tensors."""
+    if amount <= 0.0:
+        return start_embeds
+    if amount >= 1.0:
+        return end_embeds
+
+    start_dtype = start_embeds.dtype
+    start_flat = start_embeds.reshape(start_embeds.shape[0], -1).float()
+    end_flat = end_embeds.reshape(end_embeds.shape[0], -1).float()
+
+    start_norm = torch.nn.functional.normalize(start_flat, dim=-1)
+    end_norm = torch.nn.functional.normalize(end_flat, dim=-1)
+    dot = torch.clamp((start_norm * end_norm).sum(dim=-1, keepdim=True), -0.9995, 0.9995)
+    omega = torch.acos(dot)
+    sin_omega = torch.sin(omega)
+
+    linear_mask = sin_omega.abs() < 1e-6
+    interp_flat = (
+        torch.sin((1.0 - amount) * omega) / sin_omega * start_flat +
+        torch.sin(amount * omega) / sin_omega * end_flat
+    )
+    linear_interp = torch.lerp(start_flat, end_flat, amount)
+    interp_flat = torch.where(linear_mask, linear_interp, interp_flat)
+
+    return interp_flat.reshape_as(start_embeds).to(dtype=start_dtype)
+
+def generate_image(obj_name, pipeline, source_image, prompt_plan, strength=0.5, interpolation_t=1.0):
     """Generate image using img2img pipeline with source region as input.
 
     Args:
         obj_name: Object class name for prompt generation.
         pipeline: StableDiffusionImg2ImgPipeline instance.
         source_image: PIL Image of the source region to transform.
+        prompt_plan: Morph prompt plan with source/target prompt metadata.
         strength: How much to transform the source (0.0=no change, 1.0=full generation).
+        interpolation_t: Progress between source and target prompt embeddings.
     """
     try:
-        style = random.choice(ARTISTIC_STYLES)
-        prompt_template = random.choice(style['prompts'])
-        prompt = prompt_template.format(obj=obj_name)
-
         # Resize source to 512x512 for SD pipeline
         source_resized = source_image.resize((512, 512), Image.LANCZOS)
+        ensure_prompt_plan_embeddings(pipeline, prompt_plan)
+        prompt_embeds = slerp_embeddings(
+            prompt_plan['source_prompt_embeds'],
+            prompt_plan['target_prompt_embeds'],
+            interpolation_t
+        )
 
         with torch.autocast(DEVICE):
             generated_image = pipeline(
-                prompt,
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=prompt_plan['negative_prompt_embeds'],
                 image=source_resized,
                 strength=strength,
-                guidance_scale=style['guidance_scale'],
+                guidance_scale=prompt_plan['guidance_scale'],
                 num_inference_steps=20
             ).images[0]
-        print(f"Generated {style['name']} img2img (strength={strength:.2f}) for {obj_name}")
+        print(
+            f"Generated {prompt_plan['style_name']} img2img "
+            f"(strength={strength:.2f}, interpolation={interpolation_t:.2f}) for {obj_name}"
+        )
         return generated_image
     except Exception as e:
         print(f"Error during image generation: {e}")
@@ -529,12 +612,21 @@ def morph_detected_objects(current_frame, detected_objects, pipeline, morph_stat
                 if morph.needs_regen:
                     morph.needs_regen = False
                     strength = morph.get_strength()
+                    interpolation_t = morph.get_interpolation_t()
                     regenerated = generate_image(
-                        morph.class_name, pipeline, region, strength=strength
+                        morph.class_name,
+                        pipeline,
+                        region,
+                        morph.prompt_plan,
+                        strength=strength,
+                        interpolation_t=interpolation_t
                     )
                     if regenerated is not None:
                         morph.generated_image = regenerated.resize(region.size)
-                        print(f"Regenerated {morph.obj_id} at strength={strength:.2f}")
+                        print(
+                            f"Regenerated {morph.obj_id} at strength={strength:.2f}, "
+                            f"interpolation={interpolation_t:.2f}"
+                        )
                 blend_factor = morph.get_blend_factor()
                 mask = Image.new('L', region.size, int(255 * blend_factor))
                 mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
@@ -561,9 +653,14 @@ def morph_detected_objects(current_frame, detected_objects, pipeline, morph_stat
                     # Extract source region from current frame for img2img
                     source_region = pil_frame.crop((x_min, y_min, x_max, y_max))
                     initial_strength = MORPH_MIN_STRENGTH
-                    style = random.choice(ARTISTIC_STYLES)
+                    prompt_plan = build_morph_prompt_plan(class_name)
                     generated_image = generate_image(
-                        class_name, pipeline, source_region, strength=initial_strength
+                        class_name,
+                        pipeline,
+                        source_region,
+                        prompt_plan,
+                        strength=initial_strength,
+                        interpolation_t=0.0
                     )
                     if generated_image is not None:
                         generated_resized = generated_image.resize(source_region.size)
@@ -573,7 +670,7 @@ def morph_detected_objects(current_frame, detected_objects, pipeline, morph_stat
                             generated_resized,
                             frame_counter,
                             class_name,
-                            style
+                            prompt_plan
                         )
                         active_morphs.append(morph_state)
                     else:
@@ -602,20 +699,24 @@ def is_video_file(filename):
     return any(filename.lower().endswith(ext) for ext in video_extensions)
 
 class MorphState:
-    def __init__(self, obj_id, region, generated_image, frame_start, class_name, style):
+    def __init__(self, obj_id, region, generated_image, frame_start, class_name, prompt_plan):
         self.obj_id = obj_id
         self.region = region
         self.generated_image = generated_image
         self.frame_start = frame_start
         self.frame_count = 0
         self.class_name = class_name
-        self.style = style
+        self.prompt_plan = prompt_plan
         self.needs_regen = False
 
     def get_blend_factor(self):
         progress = min(1.0, self.frame_count / MORPH_FRAMES)
         blend = MORPH_MIN_BLEND + (MORPH_MAX_BLEND - MORPH_MIN_BLEND) * progress
         return blend
+
+    def get_interpolation_t(self):
+        """Get CLIP prompt interpolation amount over morph duration."""
+        return min(1.0, self.frame_count / MORPH_FRAMES)
 
     def get_strength(self):
         """Get img2img strength that ramps from MIN to MAX over morph duration."""
